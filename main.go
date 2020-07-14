@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"unsafe"
+
+	"github.com/zat-kaoru-hayama/go-msidb"
 )
 
 var kernel32 = syscall.NewLazyDLL("kernel32")
@@ -45,8 +47,14 @@ func GetPrivateProfileString(path, section, keyname, defaultValue string) (strin
 	return syscall.UTF16ToString(buffer[0:result]), nil
 }
 
-func callMsi(msiname string) error {
-	cmd1 := exec.Command("msiexec", "/i", msiname, "REINSTALL=ALL", "REINSTALLMODE=vomus")
+func callMsi(msiname string, upgrade bool) error {
+	var cmd1 *exec.Cmd
+	if upgrade {
+		cmd1 = exec.Command(
+			"msiexec", "/i", msiname, "REINSTALL=ALL", "REINSTALLMODE=vomus")
+	} else {
+		cmd1 = exec.Command("msiexec", "/i", msiname)
+	}
 	cmd1.Stdout = os.Stdout
 	cmd1.Stderr = os.Stderr
 	cmd1.Stdin = os.Stdin
@@ -80,11 +88,26 @@ func getMsiPath() (string, error) {
 }
 
 func mains() error {
+	uninit := msidb.CoInit()
+	defer uninit()
+
 	msiPath, err := getMsiPath()
 	if err != nil {
 		return err
 	}
-	return callMsi(msiPath)
+
+	db, err := msidb.Query(msiPath)
+	if err != nil {
+		return err
+	}
+	productCode, ok := db["ProductCode"]
+	if !ok {
+		return fmt.Errorf("%s: ProductCode not found")
+	}
+
+	isUpgrade := msidb.IsInstalled(productCode)
+
+	return callMsi(msiPath, isUpgrade)
 }
 
 func main() {
